@@ -9,16 +9,15 @@ ratifyamend::ratifyamend(account_name self) : contract(self), thresh_singleton(s
             _self, //publisher
             0, //initial total_voters
             0, //initial quorum_threshold
-            uint32_t(600) //expiration_length in seconds (default is 5,000,000 or ~58 days)
+            uint32_t(5000) //expiration_length in seconds (default is 5,000,000 or ~58 days)
         };
 
         update_thresh();
         thresh_singleton.set(thresh_struct, _self);
     } else {
-
         thresh_struct = thresh_singleton.get();     
         update_thresh();
-        thresh_singleton.set(thresh_struct, _self);
+        //thresh_singleton.set(thresh_struct, _self);
     }
 }
 
@@ -50,7 +49,6 @@ void ratifyamend::propose(string title, uint64_t document_id, vector<uint16_t> n
 
     documents_table documents(_self, _self);
     auto d = documents.find(document_id);
-
     eosio_assert(d != documents.end(), "Document Not Found");
     auto doc_struct = *d;
 
@@ -71,8 +69,8 @@ void ratifyamend::propose(string title, uint64_t document_id, vector<uint16_t> n
         }
     }
 
-    //NOTE: 100.0000 TLOS fee, refunded if proposal passes
-    action(permission_level{ proposer, N(active) }, N(eosio.token), N(transfer), make_tuple( //NOTE: susceptible to ram-drain bug
+    //NOTE: 100.0000 TLOS fee, refunded if proposal passes or meets specified lowered thresholds
+    action(permission_level{ proposer, N(active) }, N(eosio.token), N(transfer), make_tuple(
     	proposer,
         _self,
         asset(int64_t(1000000), S(4, TLOS)),
@@ -87,261 +85,167 @@ void ratifyamend::propose(string title, uint64_t document_id, vector<uint16_t> n
         a.title = title;
         a.new_clause_ids = new_clause_ids;
         a.new_ipfs_urls = new_ipfs_urls;
-        a.yes_count = 0;
-        a.no_count = 0;
-        a.abstain_count = 0;
+        a.yes_count = asset(0);
+        a.no_count = asset(0);
+        a.abstain_count = asset(0);
+        a.total_voters = 0;
         a.proposer = proposer;
+        a.vote_code = _self;
+        a.vote_scope = _self;
         a.expiration = now() + thresh_struct.expiration_length;
         a.status = 0;
     });
 }
 
-void ratifyamend::vote(uint64_t proposal_id, uint16_t direction, account_name voter) {
+void ratifyamend::vote(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id, uint16_t direction, uint32_t expiration, account_name voter) {
     require_auth(voter);
     eosio_assert(direction >= 0 && direction <= 2, "Invalid Vote. [0 = NO, 1 = YES, 2 = ABSTAIN]");
-
-    voters_table voters(N(trailservice), voter);
-    auto v = voters.find(voter);
-
-    eosio_assert(v != voters.end(), "VoterID Not Found");
-    
-    print("\nVoterID Found");
-    auto vid = *v;
+    eosio_assert(is_voter(voter), "voter is not registered");
 
     proposals_table proposals(_self, _self);
     auto p = proposals.find(proposal_id);
     eosio_assert(p != proposals.end(), "Proposal Not Found");
-    
-    print("\nProposal Found");
     auto prop = *p;
+    eosio_assert(prop.expiration >= now(), "Proposal Has Expired");
 
-    eosio_assert(prop.expiration > now(), "Proposal Has Expired");
+    eosio_assert(expiration == prop.expiration, "expiration does not match proposal");
+    eosio_assert(vote_code == _self, "vote_code must be eosio.amend");
+    eosio_assert(vote_scope == _self, "vote_scope must be eosio.amend");
 
-    if (vid.receipt_list.empty()) {
-
-        print("\nReceipt List Empty...Calling TrailService to update VoterID");
-
-        action(permission_level{ voter, N(active) }, N(trailservice), N(addreceipt), make_tuple(
-    	    _self,      
-    	    _self,
-    	    prop.id,
-            direction,
-            prop.expiration,
-            voter
-	    )).send();
-
-        //require_recipient(N(trailservice)); //wtf does this do???
-
-        print("\nReceipt Added. VoterID Successfully Updated");
-    } else {
-
-        print("\nSearching receipts list for existing VoteReceipt...");
-
-        bool found = false;
-
-        for (votereceipt r : vid.receipt_list) {
-            if (r.vote_key == proposal_id) {
-
-                print("\nVoteReceipt receipt found");
-                found = true;
-
-                switch (r.direction) {
-                    case 0 : prop.no_count = (prop.no_count - uint64_t(r.weight)); break;
-                    case 1 : prop.yes_count = (prop.yes_count - uint64_t(r.weight)); break;
-                    case 2 : prop.abstain_count = (prop.abstain_count - uint64_t(r.weight)); break;
-                }
-
-                print("\nCalling TrailService to update VoterID...");
-
-                action(permission_level{ voter, N(active) }, N(trailservice), N(addreceipt), make_tuple(
-    	            _self,      
-    	            _self,
-    	            prop.id,
-                    direction,
-                    prop.expiration,
-                    voter
-	            )).send();
-
-                print("\nVoterID Successfully Updated");
-
-                break;
-            }
-        }
-
-        if (found == false) {
-            print("\nVoteInfo not found in list. Calling TrailService to insert...");
-
-            action(permission_level{ voter, N(active) }, N(trailservice), N(addreceipt), make_tuple(
-    	        _self,      
-    	        _self,
-    	        prop.id,
-                direction,
-                prop.expiration,
-                voter
-	        )).send();
-
-            print("\nVoterID Successfully Updated");
-        }
-    }
-
-    string vote_type;
-    int64_t new_weight = get_liquid_tlos(voter);
-
-    switch (direction) {
-        case 0 : prop.no_count = (prop.no_count + uint64_t(new_weight)); vote_type = "NO"; break;
-        case 1 : prop.yes_count = (prop.yes_count + uint64_t(new_weight)); vote_type = "YES"; break;
-        case 2 : prop.abstain_count = (prop.abstain_count + uint64_t(new_weight)); vote_type = "ABSTAIN"; break;
-    }
-
-    proposals.modify(p, 0, [&]( auto& a ) {
-        a.no_count = prop.no_count;
-        a.yes_count = prop.yes_count;
-        a.abstain_count = prop.abstain_count;
-    });
-
-    print("\n\nVote: SUCCESSFUL");
-    print("\nYour Vote: ", vote_type);
-    print("\nVote Weight: ", new_weight);
+    require_recipient(N(eosio.trail));
+    print("\nVote sent to Trail");
 }
 
-/*
-void ratifyamend::unvote(uint64_t proposal_id, account_name voter) {
-    voters_table voters(N(trailservice), voter);
-    auto v = voters.find(voter);
-
-    eosio_assert(v != voters.end(), "VoterID Not Found");
-    
-    print("\nVoterID Found");
-    auto vid = *v;
-
-    eosio_assert(vid.receipt_list.size() > 0, "No votes in list to unvote");
-
+void ratifyamend::processvotes(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id) {
     proposals_table proposals(_self, _self);
     auto p = proposals.find(proposal_id);
     eosio_assert(p != proposals.end(), "Proposal Not Found");
-    
-    print("\nProposal Found");
     auto prop = *p;
+    eosio_assert(prop.expiration < now(), "Proposal is still open");
+    
+    receipts_table votereceipts(N(eosio.trail), N(eosio.trail));
+    auto by_code = votereceipts.get_index<N(bycode)>();
+    auto itr = by_code.lower_bound(vote_code);
 
-    auto itr = vid.receipt_list.begin();
-    int64_t weight = 0;
-    uint16_t direction;
+    eosio_assert(itr != by_code.end(), "no votes to process");
+    print("\neosio.amend processing votes...");
 
-    for (votereceipt r : vid.receipt_list) {
-        if (r.vote_key == proposal_id) {
-            weight = r.weight;
-            direction = r.direction;
+    uint64_t loops = 0;
+    uint64_t unique_voters = 0;
+    int64_t new_no_votes = 0;
+    int64_t new_yes_votes = 0;
+    int64_t new_abs_votes = 0;
 
-            print("\nReceipt removed");
+    while(itr->vote_code == vote_code && loops < 10) { //loops variable to limit cpu/net expense per call
+        
+        if (itr->vote_scope == vote_scope &&
+            itr->prop_id == proposal_id &&
+            now() > itr->expiration) {
 
-            break;
+            print("\nvr found...counting...");
+            
+            switch (itr->direction) {
+                case 0 : new_no_votes += itr->weight.amount; break;
+                case 1 : new_yes_votes += itr->weight.amount; break;
+                case 2 : new_abs_votes += itr->weight.amount; break;
+            }
+
+            unique_voters++;
         }
-
+        loops++;
         itr++;
     }
 
-    eosio_assert(itr != vid.receipt_list.end(), "Receipt doesn't exist");
+    proposals.modify(p, 0, [&]( auto& a ) {
+        a.no_count += asset(new_no_votes);
+        a.yes_count += asset(new_yes_votes);
+        a.abstain_count += asset(new_abs_votes);
+        a.total_voters += unique_voters;
+    });
 
-    if (prop.status == 0) {
+    print("\nloops processed: ", loops);
+    print("\nnew no votes: ", asset(new_no_votes));
+    print("\nnew yes votes: ", asset(new_yes_votes));
+    print("\nnew abstain votes: ", asset(new_abs_votes));
 
-        switch (direction) {
-            case 0 : prop.no_count = (prop.no_count - uint64_t(weight)); break;
-            case 1 : prop.yes_count = (prop.yes_count - uint64_t(weight)); break;
-            case 2 : prop.abstain_count = (prop.abstain_count - uint64_t(weight)); break;
-        }
-
-        proposals.modify(p, 0, [&]( auto& a ) {
-            a.no_count = prop.no_count;
-            a.yes_count = prop.yes_count;
-            a.abstain_count = prop.abstain_count;
-        });
-    }
-
-    action(permission_level{ voter, N(active) }, N(trailservice), N(rmvreceipt), make_tuple(
-    	_self,      
-    	_self,
-    	prop.id,
-        voter
-	)).send();
+    require_recipient(N(eosio.trail));
 }
-*/
 
-void ratifyamend::close(uint64_t proposal_id) { //TODO: add require_auth for proposer?
+void ratifyamend::close(uint64_t proposal_id) {
     proposals_table proposals(_self, _self);
     auto p = proposals.find(proposal_id);
-
     eosio_assert(p != proposals.end(), "Proposal Not Found");
-    auto po = *p;
+    auto prop = *p;
+    eosio_assert(prop.expiration < now(), "Proposal is still open");
+    eosio_assert(prop.status == 0, "Proposal is already closed");
 
-    eosio_assert(po.expiration <= now(), "Voting Window Still Open");
-    eosio_assert(po.status == 0, "Proposal Already Closed");
+    receipts_table votereceipts(N(eosio.trail), N(eosio.trail));
+    auto by_code = votereceipts.get_index<N(bycode)>();
+    auto itr = by_code.lower_bound(_self);
 
-    uint64_t total_votes = (po.yes_count + po.no_count + po.abstain_count); //total votes cast on proposal
-    uint64_t pass_thresh = ((po.yes_count + po.no_count) / 3) * 2; // 66.67% of total votes
+    eosio_assert(itr == by_code.end(), "proposal still has open vote receipts to process");
+    print("\nno votes to process...closing proposal and rendering verdict");
 
-    //refund thresholds
-    uint64_t q_refund_thresh = thresh_struct.total_voters / 25; //4% of all registered voters
-    uint64_t p_refund_thresh = total_votes / 4; //25% of votes cast
+    asset total_votes = (prop.yes_count + prop.no_count + prop.abstain_count); //total votes cast on proposal
 
-    //check for zero votes
-    if (total_votes == uint64_t(0)) {
+    //pass thresholds
+    uint64_t quorum_thresh = (thresh_struct.total_voters / 20); // 5% of all registered voters //TODO: update percentage with real value
+    asset pass_thresh = ((prop.yes_count + prop.no_count) / 3) * 2; // 66.67% yes votes of total_votes
 
-        proposals.modify(p, 0, [&]( auto& a ) {
-            a.status = 2;
-        });
+    //refund thresholds - both must be met for a refund - proposal pass triggers automatic refund
+    uint64_t q_refund_thresh = (thresh_struct.total_voters / 25); //4% of all registered voters
+    asset p_refund_thresh = total_votes / 4; //25% yes votes of total_votes
 
-        print("\nProposal Failed With 0 Votes.");
+    if (prop.total_voters >= quorum_thresh && total_votes >= pass_thresh) {
 
-        return;
-    }
-
-    //determine pass/fail and refund eligibility
-    if (total_votes >= thresh_struct.quorum_threshold && po.yes_count >= pass_thresh) { //PASS
+        //proposal passed, refund granted
 
         proposals.modify(p, 0, [&]( auto& a ) {
             a.status = 1;
         });
 
-        action(permission_level{ _self, N(active) }, N(eosio.token), N(transfer), make_tuple( //NOTE: susceptible to ram-drain bug
-    	    _self,
-            po.proposer,
+        action(permission_level{ _self, N(active) }, N(eosio.token), N(transfer), make_tuple(
+            _self,
+            prop.proposer,
             asset(int64_t(1000000), S(4, TLOS)),
             std::string("Ratify/Amend Proposal Fee Refund")
-	    )).send();
+        )).send();
 
-        update_doc(po.document_id, po.new_clause_ids, po.new_ipfs_urls);
+        update_doc(prop.document_id, prop.new_clause_ids, prop.new_ipfs_urls);
 
-        print("\nProposal Passed...Refund Sent...Documents Updated.");
-
-    } else if (po.yes_count >= p_refund_thresh && total_votes >= q_refund_thresh) { //FAILED, REFUND CHECK
+    } else if (prop.total_voters >= q_refund_thresh && total_votes >= p_refund_thresh) {
         
-        proposals.modify(p, 0, [&]( auto& a ) {
-            a.status = 2;
-        });
-
-        action(permission_level{ _self, N(active) }, N(eosio.token), N(transfer), make_tuple( //NOTE: susceptible to ram-drain bug
-    	    _self,
-            po.proposer,
-            asset(int64_t(1000000), S(4, TLOS)),
-            std::string("Ratify/Amend Proposal Fee Refund")
-	    )).send();
-
-        print("\nProposal Failed...Refund Sent.");
-        
-    } else { //FAILED, NO REFUND CHECK
+        //proposal failed, refund granted
 
         proposals.modify(p, 0, [&]( auto& a ) {
             a.status = 2;
         });
 
-        print("\nProposal Passed.");
+        action(permission_level{ _self, N(active) }, N(eosio.token), N(transfer), make_tuple(
+            _self,
+            prop.proposer,
+            asset(int64_t(1000000), S(4, TLOS)),
+            std::string("Ratify/Amend Proposal Fee Refund")
+        )).send();
+        
+    } else {
+        
+        //proposal failed, refund witheld
+
+        proposals.modify(p, 0, [&]( auto& a ) {
+            a.status = 2;
+        });
+
+        print("\nproposal refund witheld");
     }
-    
+
 }
+
+#pragma region Helper_Functions
 
 void ratifyamend::update_thresh() {
 
-    environment_singleton env(N(trailservice), N(trailservice));
+    environment_singleton env(N(eosio.trail), N(eosio.trail));
     environment e = env.get();
 
     uint64_t new_quorum = e.total_voters / 4; //25% of all registered voters
@@ -371,4 +275,6 @@ void ratifyamend::update_doc(uint64_t document_id, vector<uint16_t> new_clause_i
     });
 }
 
-EOSIO_ABI(ratifyamend, (insertdoc)(propose)(vote)(close))
+#pragma endregion Helper_Functions
+
+EOSIO_ABI(ratifyamend, (insertdoc)(propose)(vote)(processvotes)(close))

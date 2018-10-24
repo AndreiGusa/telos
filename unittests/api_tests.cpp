@@ -1796,7 +1796,7 @@ BOOST_FIXTURE_TEST_CASE(permission_tests, TESTER) { try {
          .account    = N(testapi),
          .permission = N(active),
          .pubkeys    = {
-            public_key_type(string("TLOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV"))
+            public_key_type(string("EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV"))
          }
       })
    );
@@ -1808,7 +1808,7 @@ BOOST_FIXTURE_TEST_CASE(permission_tests, TESTER) { try {
          .permission = N(active),
          .pubkeys    = {
             get_public_key(N(testapi), "active"),
-            public_key_type(string("TLOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV"))
+            public_key_type(string("EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV"))
          }
       })
    );

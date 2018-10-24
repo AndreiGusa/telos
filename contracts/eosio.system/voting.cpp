@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <cmath>
 
-#define VOTE_VARIATION             0.001
+
 #define TWELVE_HOURS_US  43200000000
 #define SIX_HOURS_US     21600000000
 #define SIX_MINUTES_US     360000000 // debug version
@@ -52,9 +52,7 @@ namespace eosiosystem {
         _producers.modify(prod, producer, [&](producer_info &info) {
           auto now = block_timestamp(eosio::time_point(eosio::microseconds(int64_t(current_time()))));
 
-          uint32_t hours_out = info.kick_penalty_hours * 3600; //hours in seconds
-          // uint32_t hours_out = info.kick_penalty_hours * 60; // debug version is calculated in minutes
-          block_timestamp penalty_expiration_time = block_timestamp(info.last_time_kicked.to_time_point() + time_point(microseconds(hours_out * 1000000)));
+          block_timestamp penalty_expiration_time = block_timestamp(info.last_time_kicked.to_time_point() + time_point(hours(int64_t(info.kick_penalty_hours))));
           
           eosio_assert(now.slot > penalty_expiration_time.slot,
             std::string("Producer is not allowed to register at this time. Please fix your node and try again later in: " 
@@ -252,9 +250,9 @@ namespace eosiosystem {
         return 0;
      }
 
-     double k = 1 - VOTE_VARIATION;
-     
-     return (k * sin(M_PI_2 * (amountVotedProducers / totalProducers)) + VOTE_VARIATION) * double(staked);
+     double percentVoted = amountVotedProducers / totalProducers;
+     double voteWeight = (sin(M_PI * percentVoted - M_PI_2) + 1.0) / 2.0;
+     return (voteWeight * staked);
    }
 
 

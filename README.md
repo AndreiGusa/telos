@@ -50,7 +50,7 @@ For a full explanation of all the proposed Telos features, be sure to read our w
 
     b. Determine your Signature Provider. Run `teclos create key`, and import your keys into your wallet.
 
-        signature-provider = TLOS{public key}=KEY:{private key}
+        signature-provider = EOS{public key}=KEY:{private key}
 
     c. Determine your p2p and http endpoints. Choose your own p2p and http ports.
 

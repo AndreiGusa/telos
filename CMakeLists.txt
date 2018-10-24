@@ -208,9 +208,9 @@ message( STATUS "Using '${CORE_SYMBOL_NAME}' as CORE symbol name" )
 
 # TELOS CHANGES:
 #
-# 1. Updated EOSIO_ROOT_KEY with TLOS prepend
+# 1. Updated EOSIO_ROOT_KEY with EOS prepend
 if ("${EOSIO_ROOT_KEY}" STREQUAL "")
-   set(EOSIO_ROOT_KEY "TLOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV")
+   set(EOSIO_ROOT_KEY "EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV")
 endif()
 
 message( STATUS "Using '${EOSIO_ROOT_KEY}' as public key for 'eosio' account" )
