@@ -40,7 +40,7 @@ class ratifyamend : public contract {
         void vote(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id, uint16_t direction, uint32_t expiration, account_name voter);
 
         /// @abi action
-        void processvotes(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id);
+        void processvotes(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id, uint16_t loop_count);
 
         /// @abi action
         void close(uint64_t proposal_id);

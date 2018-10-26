@@ -78,6 +78,7 @@ struct processvotes_args {
     uint64_t vote_code;
     uint64_t vote_scope;
     uint64_t proposal_id;
+    uint16_t loop_count;
 };
 
 #pragma endregion Structs

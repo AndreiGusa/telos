@@ -327,7 +327,7 @@ extern "C" {
 
             print("\nlower bound id: ", itr->receipt_id);
 
-            while(itr->vote_code == args.vote_code && loops < 10) { //loops variable to limit cpu/net expense per call
+            while(itr->vote_code == args.vote_code && loops < args.loop_count) { //loops variable to limit cpu/net expense per call
                 
                 if (itr->vote_scope == args.vote_scope &&
                     itr->prop_id == args.proposal_id &&
