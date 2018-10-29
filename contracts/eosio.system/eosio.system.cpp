@@ -16,13 +16,15 @@ namespace eosiosystem {
     _global(_self,_self),
     _rotations(_self,_self),
     _rammarket(_self,_self),
-    payments(_self, _self)
+    _schedule_metrics(_self, _self),
+    _payments(_self, _self)
    {
       //print( "construct system\n" );
       _gstate = _global.exists() ? _global.get() : get_default_parameters();
       _grotations = _rotations.get_or_create(_self, rotation_info{
-        true, 0, 0, 21, 75, block_timestamp(), block_timestamp(), true, 0, block_timestamp(),{}
+        true, 0, 0, 21, 75, block_timestamp(), block_timestamp(), 
       });
+      _gschedule_metrics = _schedule_metrics.get_or_create(_self, schedule_metrics{ 0, 0, std::vector<producer_metric>() });
       auto itr = _rammarket.find(S(4,RAMCORE));
 
       if( itr == _rammarket.end() ) {
@@ -52,6 +54,7 @@ namespace eosiosystem {
       //print( "destruct system\n" );
       _global.set( _gstate, _self );
       _rotations.set( _grotations, _self );
+      _schedule_metrics.set(_gschedule_metrics, _self);
       //eosio_exit(0);
    }
 
@@ -103,10 +106,10 @@ namespace eosiosystem {
       require_auth( _self );
       _grotations.is_rotation_active = state;
    }
-
+  //TODO
    void system_contract::setkick( bool state ) {
       require_auth( _self );
-      _grotations.is_kick_active = state;
+      // _grotations.is_kick_active = state;
    }
 
    void system_contract::bidname( account_name bidder, account_name newname, asset bid ) {

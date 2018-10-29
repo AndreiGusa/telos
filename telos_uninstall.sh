@@ -6,7 +6,7 @@ binaries=(teclos
           eosio-s2wasm
           eosio-wast2wasm
           eosiocpp
-          keosd
+          tkeosd
           nodeos
           eosio-applesdemo)
 

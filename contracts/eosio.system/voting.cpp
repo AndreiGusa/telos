@@ -20,6 +20,7 @@
 
 #define TWELVE_HOURS_US  43200000000
 #define SIX_HOURS_US     21600000000
+#define ONE_HOUR_US        900000000 // 15 min ***quick test
 #define SIX_MINUTES_US     360000000 // debug version
 #define TWELVE_MINUTES_US  720000000
 #define MAX_PRODUCERS             51
@@ -62,11 +63,8 @@ namespace eosiosystem {
           info.producer_key = producer_key;
           info.url = url;
           info.location = location;
-          info.missed_blocks = 0;
+          info.missed_blocks_per_rotation = 0;
           info.is_active = true;
-          info.kick_reason = "";
-          info.kick_reason_id = 0;
-          info.last_time_kicked = block_timestamp();
         });
       } else {
         _producers.emplace(producer, [&](producer_info &info) {
@@ -90,15 +88,33 @@ namespace eosiosystem {
       });
    }
 
-   void system_contract::setBPsRotation(account_name bpOut, account_name sbpIn) {
+   void system_contract::set_bps_rotation(account_name bpOut, account_name sbpIn) {
       _grotations.bp_currently_out = bpOut;
       _grotations.sbp_currently_in = sbpIn;
    }
 
-   void system_contract::updateRotationTime(block_timestamp block_time) {
+   void system_contract::update_rotation_time(block_timestamp block_time) {
       _grotations.last_rotation_time = block_time;
       _grotations.next_rotation_time = block_timestamp(block_time.to_time_point() + time_point(microseconds(SIX_HOURS_US)));
-   } 
+   }
+
+   void system_contract::restart_missed_blocks_per_rotation(std::vector<eosio::producer_key> prods) {
+        // restart all missed blocks to bps and sbps
+        for (size_t i = 0; i < prods.size(); i++) {
+          auto bp_name = prods[i].producer_name;
+          auto pitr = _producers.find(bp_name);
+
+          if (pitr != _producers.end() && pitr->active()) {
+            _producers.modify(pitr, 0, [&](auto &p) {
+              if (p.kick_penalty_hours > 0 && p.missed_blocks_per_rotation == 0) {
+                p.kick_penalty_hours--;
+              } 
+              p.lifetime_missed_blocks += p.missed_blocks_per_rotation;
+              p.missed_blocks_per_rotation = 0;
+            });
+          }
+        }
+   }
 
    //TODO: Add _grotations.is_rotation_active, that way this feature can be toggled.
    void system_contract::update_elected_producers( block_timestamp block_time ) {
@@ -123,26 +139,7 @@ namespace eosiosystem {
       vector<eosio::producer_key>::iterator it_sbp = prods.end();
 
       if (_grotations.next_rotation_time <= block_time) {
-        // restart all missed blocks to bps and sbps
-        for (size_t i = 0; i < prods.size(); i++) {
-          auto bp_name = prods[i].producer_name;
-          
-          //check if producer is online.
-           auto bp = std::find_if(_grotations.offline_bps.begin(), _grotations.offline_bps.end(), [&bp_name](const offline_producer &op) {
-              return op.name == bp_name;
-          });
-          
-          if(bp != _grotations.offline_bps.end()) continue;
-
-          auto pitr = _producers.find(bp_name);
-          if (pitr != _producers.end() && pitr->active()) {
-            _producers.modify(pitr, 0, [&](auto &p) {
-              p.missed_blocks = 0;
-              if (p.kick_penalty_hours > 0) p.kick_penalty_hours--;
-            });
-          }
-        }
-
+        
         if (totalActiveVotedProds > TOP_PRODUCERS) {
           _grotations.bp_out_index = _grotations.bp_out_index >= TOP_PRODUCERS - 1 ? 0 : _grotations.bp_out_index + 1;
           _grotations.sbp_in_index = _grotations.sbp_in_index >= totalActiveVotedProds - 1 ? TOP_PRODUCERS : _grotations.sbp_in_index + 1;
@@ -153,10 +150,11 @@ namespace eosiosystem {
           it_bp = prods.begin() + int32_t(_grotations.bp_out_index);
           it_sbp = prods.begin() + int32_t(_grotations.sbp_in_index);
 
-          setBPsRotation(bp_name, sbp_name);
+          set_bps_rotation(bp_name, sbp_name);
         } 
 
-        updateRotationTime(block_time);
+        update_rotation_time(block_time);
+        restart_missed_blocks_per_rotation(prods);
       }
       else {
         if(_grotations.bp_currently_out != 0 && _grotations.sbp_currently_in != 0) {
@@ -173,14 +171,14 @@ namespace eosiosystem {
           auto _sbp_index = std::distance(prods.begin(), it_sbp);
 
           if(it_bp == prods.end() || it_sbp == prods.end()) {
-              setBPsRotation(0, 0);
+              set_bps_rotation(0, 0);
 
             if(totalActiveVotedProds < TOP_PRODUCERS) {
               _grotations.bp_out_index = TOP_PRODUCERS;
               _grotations.sbp_in_index = MAX_PRODUCERS+1;
             }
           } else if (totalActiveVotedProds > TOP_PRODUCERS && (!is_in_range(_bp_index, 0, TOP_PRODUCERS) || !is_in_range(_sbp_index, TOP_PRODUCERS, MAX_PRODUCERS))) {
-              setBPsRotation(0, 0);
+              set_bps_rotation(0, 0);
               it_bp = prods.end();
               it_sbp = prods.end();
           }
@@ -219,9 +217,21 @@ namespace eosiosystem {
       std::sort( top_producers.begin(), top_producers.end() );
       bytes packed_schedule = pack(top_producers);
 
-      if( set_proposed_producers( packed_schedule.data(),  packed_schedule.size() ) >= 0 ) {
+      auto schedule_version = set_proposed_producers( packed_schedule.data(),  packed_schedule.size());
+      if (schedule_version >= 0) {
+        _gstate.last_proposed_schedule_update = block_time;
+        _gschedule_metrics.producers_metric.erase(_gschedule_metrics.producers_metric.begin(), _gschedule_metrics.producers_metric.end());
+       
         print("\n**new schedule was proposed**");
-         _gstate.last_producer_schedule_size = static_cast<decltype(_gstate.last_producer_schedule_size)>( top_producers.size() );
+        std::vector<producer_metric> psm;
+        std::for_each(top_producers.begin(), top_producers.end(), [&psm](auto &tp) {
+          auto bp_name = tp.producer_name;
+          psm.emplace_back(producer_metric{ bp_name, 12 });
+        });
+ 
+        _gschedule_metrics.producers_metric = psm;
+        
+        _gstate.last_producer_schedule_size = static_cast<decltype(_gstate.last_producer_schedule_size)>(top_producers.size());
       }
    }
    
@@ -229,7 +239,7 @@ namespace eosiosystem {
    * This function caculates the inverse weight voting. 
    * The maximum weighted vote will be reached if an account votes for the maximum number of registered producers (up to 30 in total).  
    */   
-   double system_contract::inverseVoteWeight(double staked, double amountVotedProducers) {
+   double system_contract::inverse_vote_weight(double staked, double amountVotedProducers) {
      if (amountVotedProducers == 0.0) {
        return 0;
      }
@@ -316,7 +326,7 @@ namespace eosiosystem {
          _gstate.total_activated_stake += totalStaked - voter->last_stake;
       }
 
-      auto new_vote_weight = inverseVoteWeight((double )totalStaked, (double) producers.size());
+      auto new_vote_weight = inverse_vote_weight((double )totalStaked, (double) producers.size());
       boost::container::flat_map<account_name, pair<double, bool /*new*/> > producer_deltas;
 
       // print("\n Voter : ", voter->last_stake, " = ", voter->last_vote_weight, " = ", proxy, " = ", producers.size(), " = ", totalStaked, " = ", new_vote_weight);
@@ -423,7 +433,6 @@ namespace eosiosystem {
       }
    }
 
-
    void system_contract::propagate_weight_change(const voter_info &voter) {
       eosio_assert( voter.proxy == 0 || !voter.is_proxy, "account registered as a proxy is not allowed to use a proxy");
       
@@ -431,7 +440,7 @@ namespace eosiosystem {
       if(voter.is_proxy){
          totalStake += voter.proxied_vote_weight;
       } 
-      double new_weight = inverseVoteWeight(totalStake, voter.producers.size());
+      double new_weight = inverse_vote_weight(totalStake, voter.producers.size());
     
       if (new_weight - voter.last_vote_weight > 1){
          if (voter.proxy) {

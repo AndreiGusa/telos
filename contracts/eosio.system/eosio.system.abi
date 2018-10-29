@@ -19,12 +19,19 @@
    }],
    "____comment": "eosio.bios structs: set_account_limits, setpriv, set_global_limits, producer_key, set_producers, require_auth are provided so abi available for deserialization in future.",
    "structs": [{
-     "name": "offline_producer",
+     "name": "schedule_metrics",
       "base": "",
       "fields": [
-        {"name":"name",          "type":"account_name"},
-        {"name":"total_votes",   "type":"float64"},
-        {"name":"missed_blocks", "type":"uint32"}
+        {"name":"last_onblock_caller",      "type":"account_name"},
+        {"name":"block_counter_correction", "type":"int32"},
+        {"name":"producers_metric",         "type":"producer_metric[]"}
+      ]
+   },{
+     "name": "producer_metric",
+      "base": "",
+      "fields": [
+        {"name":"name",                    "type":"account_name"},
+        {"name":"missed_blocks_per_cycle", "type":"uint32"}
       ]
    },{
       "name": "rotation_info",
@@ -36,11 +43,7 @@
         {"name":"bp_out_index",               "type":"uint32"},
         {"name":"sbp_in_index",               "type":"uint32"},
         {"name":"next_rotation_time",         "type":"block_timestamp_type"},
-        {"name":"last_rotation_time",         "type":"block_timestamp_type"},
-        {"name":"is_kick_active",             "type":"bool"},
-        {"name":"last_onblock_caller",        "type":"account_name"},
-        {"name":"last_time_block_produced",   "type":"block_timestamp_type"},
-        {"name":"offline_bps",                "type":"offline_producer[]"}
+        {"name":"last_rotation_time",         "type":"block_timestamp_type"}
       ]
     },{
       "name": "payment",
@@ -301,6 +304,7 @@
          {"name":"total_ram_bytes_reserved",      "type":"uint64"},
          {"name":"total_ram_stake",               "type":"int64"},
          {"name":"last_producer_schedule_update", "type":"block_timestamp_type"},
+         {"name":"last_proposed_schedule_update", "type":"block_timestamp_type"},
          {"name":"last_pervote_bucket_fill",      "type":"uint64"},
          {"name":"pervote_bucket",                "type":"int64"},
          {"name":"perblock_bucket",               "type":"int64"},
@@ -322,8 +326,9 @@
          {"name":"is_active",                   "type":"bool"},
          {"name":"url",                         "type":"string"},
          {"name":"unpaid_blocks",               "type":"uint32"},
-         {"name":"missed_blocks",               "type":"uint32"},
-         {"name":"blocks_per_cycle",            "type":"uint32"},
+         {"name":"lifetime_unpaid_blocks",      "type":"uint32"},
+         {"name":"missed_blocks_per_rotation",  "type":"uint32"},
+         {"name":"lifetime_missed_blocks",      "type":"uint32"},
          {"name":"last_claim_time",             "type":"uint64"},
          {"name":"location",                    "type":"uint16"},
          {"name":"kick_reason_id",              "type":"uint32"},
@@ -596,6 +601,12 @@
       "ricardian_contract": ""
     }],
    "tables": [{
+      "name": "schedulemetr",
+      "type": "schedule_metrics",
+      "index_type": "i64",
+      "key_names" : ["last_onblock_caller"],
+      "key_types" : ["uint64"]
+    },{
       "name": "rotations",
       "type": "rotation_info",
       "index_type": "i64",
