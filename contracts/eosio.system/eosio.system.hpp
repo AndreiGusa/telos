@@ -11,8 +11,6 @@
 #include <eosiolib/singleton.hpp>
 #include <eosio.system/exchange_state.hpp>
 
-#include "../trail.service/trail.definitions/traildef.voting.hpp"
-
 #include <cmath>  
 #include <string>
 

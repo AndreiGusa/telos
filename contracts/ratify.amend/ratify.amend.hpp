@@ -35,12 +35,8 @@ class ratifyamend : public contract {
         /// @abi action
         void propose(string title, uint64_t document_id, vector<uint16_t> new_clause_ids, vector<string> new_ipfs_urls, account_name proposer);
 
-        //TODO: consider renaming/retyping params
         /// @abi action
         void vote(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id, uint16_t direction, uint32_t expiration, account_name voter);
-
-        /// @abi action
-        void processvotes(uint64_t vote_code, uint64_t vote_scope, uint64_t proposal_id, uint16_t loop_count);
 
         /// @abi action
         void close(uint64_t proposal_id);
@@ -49,45 +45,45 @@ class ratifyamend : public contract {
 
         /// @abi table documents i64
         struct document {
-            uint64_t id;
-            string title;
+            uint64_t document_id;
+            string document_title;
             vector<string> clauses; //vector of ipfs urls
 
             uint64_t primary_key() const { return id; }
-            EOSLIB_SERIALIZE(document, (id)(title)(clauses))
+            EOSLIB_SERIALIZE(document, (document_id)(document_title)(clauses))
         };
 
-        //TODO: make secondary index of status
         /// @abi table proposals i64
         struct proposal {
-            uint64_t id;
-            uint64_t document_id;
-            string title;
+            uint64_t proposal_id;
+            uint64_t ballot_id;
+            account_name proposer;
+
+            uint64_t document_id; //document to amend
+            string proposal_title;
             vector<uint16_t> new_clause_ids;
             vector<string> new_ipfs_urls;
-            asset yes_count;
-            asset no_count;
-            asset abstain_count;
-            uint64_t total_voters;
-            account_name proposer;
-            uint64_t vote_code;
-            uint64_t vote_scope;
-            uint32_t expiration;
-            uint64_t status; // 0 = OPEN, 1 = PASSED, 2 = FAILED
+
+            uint32_t begin_time;
+            uint32_t end_time;
+            uint64_t status; //0 = OPEN, 1 = PASSED, 2 = FAILED
 
             uint64_t primary_key() const { return id; }
-            EOSLIB_SERIALIZE(proposal, (id)(document_id)(title)(new_clause_ids)(new_ipfs_urls)(yes_count)(no_count)(abstain_count)(total_voters)(proposer)(vote_code)(vote_scope)(expiration)(status))
+            EOSLIB_SERIALIZE(proposal, (proposal_id)(ballot_id)
+                (document_id)(proposal_title)(new_clause_ids)(new_ipfs_urls)
+                (begin_time)(end_time)(status))
         };
 
-        /// @abi table threshold
-        struct threshold {
+        /// @abi table configs
+        struct config {
             account_name publisher;
-            uint64_t total_voters;
-            uint64_t quorum_threshold;
+
+            uint32_t start_offset;
             uint32_t expiration_length;
 
             uint64_t primary_key() const { return publisher; }
-            EOSLIB_SERIALIZE(threshold, (publisher)(total_voters)(quorum_threshold)(expiration_length))
+            EOSLIB_SERIALIZE(config, (publisher)
+                (start_offset)(expiration_length))
         };
 
     #pragma region Tables
@@ -96,9 +92,9 @@ class ratifyamend : public contract {
 
     typedef multi_index<N(proposals), proposal> proposals_table;
 
-    typedef singleton<N(threshold), threshold> threshold_singleton;
-    threshold_singleton thresh_singleton;
-    threshold thresh_struct;
+    typedef singleton<N(configs), config> configs_singleton;
+    configs_singleton config_singleton;
+    config configs_struct;
 
     #pragma endregion Tables
 

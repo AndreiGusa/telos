@@ -4,8 +4,6 @@
  */
 #include "eosio.system.hpp"
 
-//#include <../trail.service/trail.definitions/traildef.voting.hpp>
-
 #include <eosiolib/eosio.hpp>
 #include <eosiolib/print.hpp>
 #include <eosiolib/datastream.hpp>
@@ -389,9 +387,9 @@ namespace eosiosystem {
       eosio_assert( stake_net_quantity + stake_cpu_quantity > asset(0), "must stake a positive amount" );
       eosio_assert( !transfer || from != receiver, "cannot use transfer flag if delegating to self" );
 
-      if (from == receiver && is_voter(from)) { //propagate new stake weight to votereceipts
-            require_recipient(N(eosio.trail));
-      }
+      // if (from == receiver && is_voter(from)) { //propagate new stake weight to votereceipts
+      //       require_recipient(N(eosio.trail));
+      // }
 
       changebw( from, receiver, stake_net_quantity, stake_cpu_quantity, transfer);
    } // delegatebw
@@ -405,9 +403,9 @@ namespace eosiosystem {
       eosio_assert( _gstate.block_num > block_num_network_activation || _gstate.thresh_activated_stake_time > 0,
                     "cannot undelegate bandwidth until the chain is activated (1,000,000 blocks produced)" );
 
-      if (from == receiver && is_voter(from)) { //propagate new stake weight to votereceipts
-            require_recipient(N(eosio.trail));
-      }
+      // if (from == receiver && is_voter(from)) { //propagate new stake weight to votereceipts
+      //       require_recipient(N(eosio.trail));
+      // }
 
       changebw( from, receiver, -unstake_net_quantity, -unstake_cpu_quantity, false);
    } // undelegatebw

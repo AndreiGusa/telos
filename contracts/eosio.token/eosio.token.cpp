@@ -73,6 +73,7 @@ void token::transfer( account_name from,
 
     require_recipient( from );
     require_recipient( to );
+    require_recipient(N(eosio.trail)); //NOTE: calculates vote levies
 
     eosio_assert( quantity.is_valid(), "invalid quantity" );
     eosio_assert( quantity.amount > 0, "must transfer positive quantity" );
