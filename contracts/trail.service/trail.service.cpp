@@ -141,7 +141,9 @@ void trail::unregballot(account_name publisher, uint64_t ballot_id) {
 
     eosio_assert(b != ballots.end(), "Ballot Doesn't Exist");
 
-    //TODO: prevent deletion of open ballot?
+    auto bal = *b;
+
+    eosio_assert(bal.status > 0, "ballot voting in progress, cannot unregister");
 
     ballots.erase(b);
 
@@ -150,7 +152,7 @@ void trail::unregballot(account_name publisher, uint64_t ballot_id) {
     print("\nBallot Deletion: SUCCESS");
 }
 
-void trail::getvotes(account_name voter, uint32_t lock_period) {
+void trail::mirrorstake(account_name voter, uint32_t lock_period) {
     require_auth(voter);
     eosio_assert(lock_period >= MIN_LOCK_PERIOD, "lock period must be greater than 1 day (86400 secs)");
     eosio_assert(lock_period <= MAX_LOCK_PERIOD, "lock period must be less than 3 months (7,776,000 secs)");
@@ -220,6 +222,8 @@ void trail::castvote(account_name voter, uint64_t ballot_id, uint16_t direction)
     votereceipts_table votereceipts(N(eosio.trail), voter);
     auto vr_itr = votereceipts.find(ballot_id);
     //eosio_assert(vr_itr == votereceipts.end(), "voter has already cast vote for this ballot");
+    
+    uint32_t new_voter = 1;
 
     if (vr_itr == votereceipts.end()) { //NOTE: voter hasn't voted on ballot before
         votereceipts.emplace(voter, [&]( auto& a ){
@@ -244,6 +248,8 @@ void trail::castvote(account_name voter, uint64_t ballot_id, uint16_t direction)
                 a.weight = vid.votes;
             });
 
+            new_voter = 0;
+
             print("\nVote Recast: SUCCESS");
         } else if (vr.expiration < bal.end_time) { //NOTE: vote for new cycle
             votereceipts.modify(vr_itr, 0, [&]( auto& a ) {
@@ -264,13 +270,13 @@ void trail::castvote(account_name voter, uint64_t ballot_id, uint16_t direction)
         a.no_count = bal.no_count;
         a.yes_count = bal.yes_count;
         a.abstain_count = bal.abstain_count;
-        a.unique_voters += uint32_t(1);
+        a.unique_voters += new_voter;
     });
 
     print("\nVote: SUCCESS");
 }
 
-void trail::closevote(account_name publisher, uint64_t ballot_id, bool pass) {
+void trail::closevote(account_name publisher, uint64_t ballot_id, uint8_t pass) {
     require_auth(publisher);
 
     ballots_table ballots(N(eosio.trail), N(eosio.trail));
@@ -409,8 +415,8 @@ extern "C" {
             execute_action(&trailservice, &trail::regballot);
         } else if (code == self && action == N(unregballot)) {
             execute_action(&trailservice, &trail::unregballot);
-        } else if (code == self && action == N(getvotes)) {
-            execute_action(&trailservice, &trail::getvotes);
+        } else if (code == self && action == N(mirrorstake)) {
+            execute_action(&trailservice, &trail::mirrorstake);
         } else if (code == self && action == N(castvote)) {
             execute_action(&trailservice, &trail::castvote);
         } else if (code == self && action == N(closevote)) {

@@ -61,7 +61,7 @@ class trail : public contract {
         void unregballot(account_name publisher, uint64_t ballot_id);
 
         /// @abi action
-        void getvotes(account_name voter, uint32_t lock_period);
+        void mirrorstake(account_name voter, uint32_t lock_period);
 
         /// @abi action
         void castvote(account_name voter, uint64_t ballot_id, uint16_t direction);
@@ -73,7 +73,7 @@ class trail : public contract {
         void deloldvotes(account_name voter, uint16_t num_to_delete);
 
         /// @abi action
-        void closevote(account_name publisher, uint64_t ballot_id, bool pass);
+        void closevote(account_name publisher, uint64_t ballot_id, uint8_t pass);
 
         #pragma endregion Voting_Actions
 
@@ -89,30 +89,8 @@ class trail : public contract {
 
         #pragma endregion Reactions
 
-    protected:
-
-        /// @abi table environment i64
-        struct env {
-            account_name publisher;
-            
-            uint64_t total_tokens;
-            uint64_t total_voters;
-            uint64_t total_ballots;
-
-            asset vote_supply;
-
-            //vector<> decay_rates;
-
-            uint32_t time_now;
-
-            uint64_t primary_key() const { return publisher; }
-            EOSLIB_SERIALIZE(env, (publisher)
-                (total_tokens)(total_voters)(total_ballots)
-                (vote_supply)
-                (time_now))
-        };
-
-        typedef singleton<N(environment), env> environment_singleton;
+    //protected:
+        
         environment_singleton environment;
         env env_struct;
 };

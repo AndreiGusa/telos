@@ -62,12 +62,31 @@ struct ballot {
 
     uint32_t begin_time;
     uint32_t end_time;
-    bool status; // 0 = FAIL, 1 = PASS
+    uint8_t status; // 0 = OPEN, 1 = PASS, 2 = FAIL
 
     uint64_t primary_key() const { return ballot_id; }
     EOSLIB_SERIALIZE(ballot, (ballot_id)(publisher)(info_url)
         (no_count)(yes_count)(abstain_count)(unique_voters)
         (begin_time)(end_time)(status))
+};
+
+/// @abi table environment i64
+struct env {
+    account_name publisher;
+    
+    uint64_t total_tokens;
+    uint64_t total_voters;
+    uint64_t total_ballots;
+
+    asset vote_supply;
+
+    uint32_t time_now;
+
+    uint64_t primary_key() const { return publisher; }
+    EOSLIB_SERIALIZE(env, (publisher)
+        (total_tokens)(total_voters)(total_ballots)
+        (vote_supply)
+        (time_now))
 };
 
 #pragma endregion Structs
@@ -81,6 +100,8 @@ typedef multi_index<N(ballots), ballot> ballots_table;
 typedef multi_index<N(votereceipts), vote_receipt> votereceipts_table;
 
 typedef multi_index<N(votelevies), vote_levy> votelevies_table;
+
+typedef singleton<N(environment), env> environment_singleton;
 
 #pragma endregion Tables
 
