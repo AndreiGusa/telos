@@ -78,7 +78,7 @@ class ratifyamend : public contract {
 
             uint32_t begin_time;
             uint32_t end_time;
-            uint8_t status; // 0 = BUILDING, 1 = PASS, 2 = FAIL
+            uint8_t status; // 0 = BUILDING, 1 = READY, 2 = PASS, 3 = FAIL
 
             uint64_t primary_key() const { return proposal_id; }
             EOSLIB_SERIALIZE(proposal, (proposal_id)(ballot_id)(proposer)

@@ -88,8 +88,6 @@ class trail : public contract {
         asset calc_decay(account_name voter, asset amount);
 
         #pragma endregion Reactions
-
-    //protected:
         
         environment_singleton environment;
         env env_struct;

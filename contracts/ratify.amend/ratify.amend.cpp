@@ -43,7 +43,9 @@ void ratifyamend::makeproposal(string prop_title, uint64_t doc_id, uint8_t new_c
     documents_table documents(_self, _self);
     auto d = documents.find(doc_id);
     eosio_assert(d != documents.end(), "Document Not Found");
-    auto doc_struct = *d;
+    auto doc = *d;
+
+    eosio_assert(new_clause_num <= doc.clauses.size() + 1 && new_clause_num >= 0, "new clause num is not valid");
 
     //NOTE: 100.0000 TLOS fee, refunded if proposal passes or meets specified lower thresholds
     action(permission_level{ proposer, N(active) }, N(eosio.token), N(transfer), make_tuple(
@@ -90,7 +92,23 @@ void ratifyamend::addclause(uint64_t prop_id, uint8_t new_clause_num, string new
     auto prop = *p;
 
     eosio_assert(prop.proposer == proposer, "can't add clauses to proposal you don't own");
-    eosio_assert(prop.status == 0, "proposal is past stage allowing clause additions");
+    eosio_assert(prop.status == 0, "proposal is no longer in building stage");
+
+    documents_table documents(_self, _self);
+    auto d = documents.find(prop.document_id);
+    eosio_assert(d != documents.end(), "Document Not Found");
+    auto doc = *d;
+
+    eosio_assert(new_clause_num <= doc.clauses.size() + 1 && new_clause_num >= 0, "new clause num is not valid");
+    bool existing_clause = false;
+
+    for (int i = 0; i < prop.new_clause_nums.size(); i++) {
+        if (prop.new_clause_nums[i] == new_clause_num) {
+            existing_clause = true;
+        }
+    }
+
+    eosio_assert(existing_clause = false, "clause number to add already exists in proposal");
 
     prop.new_clause_nums.push_back(new_clause_num);
     prop.new_ipfs_urls.push_back(new_ipfs_url);
@@ -126,6 +144,23 @@ void ratifyamend::linkballot(uint64_t prop_id, uint64_t ballot_id, account_name 
     });
 
     print("\nBallot Link: SUCCESS");
+}
+
+void ratifyamend::readyprop(uint64_t prop_id, account_name proposer) {
+    require_auth(proposer);
+
+    proposals_table proposals(_self, _self);
+    auto p = proposals.find(prop_id);
+    eosio_assert(p != proposals.end(), "Proposal Not Found");
+    auto prop = *p;
+
+    eosio_assert(prop.status == 0, "proposal is no longer in building stage");
+
+    proposals.modify(p, 0, [&]( auto& a ) {
+        a.status = uint8(1);
+    });
+
+    print("\nReady Proposal: SUCCESS");
 }
 
 void ratifyamend::closeprop(uint64_t proposal_id, account_name proposer) {
@@ -196,6 +231,7 @@ void ratifyamend::closeprop(uint64_t proposal_id, account_name proposer) {
         print("\nProposal refund witheld");
     }
 
+    //NOTE: for now, called separately by proposer
     //Inline action to Trail to close vote
     // action(permission_level{ proposer, N(active) }, N(eosio.trail), N(closevote), make_tuple(
     //     prop.proposer,
