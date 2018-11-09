@@ -505,16 +505,22 @@ public:
       	return 0;
       }
  
+      total_producers_count = 30;
       // 30 max producers allowed to vote
-      if(total_producers_count > 30) {
-         total_producers_count = 30;
-      }
- 
-	double staked = stake.get_amount();
-	double VOTE_VARIATION = 0.1;
-      double k = 1 - VOTE_VARIATION;
+//       if(total_producers_count > 30) {
+//          total_producers_count = 30;
+//       }
+
       
-      return (k * sin(M_PI_2 * (voted_producers_count / total_producers_count)) + VOTE_VARIATION) * double(staked);
+//      if(total_producers_count == 0){
+//         return 0;
+//      }
+
+     double percentVoted = voted_producers_count / total_producers_count;
+     double voteWeight = (sin(M_PI * percentVoted - M_PI_2) + 1.0) / 2.0;
+     double staked = stake.get_amount();
+
+     return (voteWeight * staked);
    }
 
    fc::variant get_stats( const string& symbolname ) {
@@ -577,6 +583,7 @@ public:
    }
 
    vector<name> active_and_vote_producers() {
+      produce_blocks(3600);
       //stake more than 15% of total EOS supply to activate chain
       transfer( "eosio", "alice1111111", core_from_string("650000000.0000"), "eosio" );
       BOOST_REQUIRE_EQUAL( success(), stake( "alice1111111", "alice1111111", core_from_string("300000000.0000"), core_from_string("300000000.0000") ) );

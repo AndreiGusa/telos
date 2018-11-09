@@ -64,22 +64,40 @@ void system_contract::reset_schedule_metrics(account_name producer = NULL) {
 
 void system_contract::update_missed_blocks_per_rotation() {
   auto active_schedule_size = std::distance(_gschedule_metrics.producers_metric.begin(), _gschedule_metrics.producers_metric.end());
-  uint16_t max_kick_bps = uint16_t(active_schedule_size / 7);  
+  uint16_t max_kick_bps = uint16_t(active_schedule_size / 7);
+
+  std::vector<producer_info> prods;
 
   for (auto &pm : _gschedule_metrics.producers_metric) {
-    if (pm.missed_blocks_per_cycle > 0) {      
-      auto pitr = _producers.find(pm.name);
-      if (pitr != _producers.end() && pitr->is_active) {
+    auto pitr = _producers.find(pm.name);
+    if (pitr != _producers.end() && pitr->is_active) {
+      if (pm.missed_blocks_per_cycle > 0) {
+         print("\nblock producer: ", name{pm.name}, " missed ", pm.missed_blocks_per_cycle, " blocks."); 
         _producers.modify(pitr, 0, [&](auto &p) {
           p.missed_blocks_per_rotation += pm.missed_blocks_per_cycle;
-          if(crossed_missed_blocks_threshold(p.missed_blocks_per_rotation, uint32_t(active_schedule_size)) && max_kick_bps > 0) {
-              p.lifetime_missed_blocks += p.missed_blocks_per_rotation;
-              p.kick(kick_type::REACHED_TRESHOLD);
-              max_kick_bps--;
-            } 
+          print("\ntotal missed blocks: ", p.missed_blocks_per_rotation);
         });
       }
+
+      if (pitr->missed_blocks_per_rotation > 0) prods.emplace_back(*pitr);
     }
+  }
+
+  std::sort(prods.begin(), prods.end(), [](const producer_info &p1, const producer_info &p2) {
+    if(p1.missed_blocks_per_rotation != p2.missed_blocks_per_rotation) return p1.missed_blocks_per_rotation > p2.missed_blocks_per_rotation;
+    else return p1.total_votes < p2.total_votes;
+  });
+
+  for (auto &prod : prods) {
+    auto pitr = _producers.find(prod.owner);
+
+    if (crossed_missed_blocks_threshold(pitr->missed_blocks_per_rotation, uint32_t(active_schedule_size)) && max_kick_bps > 0) {
+      _producers.modify(pitr, 0, [&](auto &p) {
+        p.lifetime_missed_blocks += p.missed_blocks_per_rotation;
+        p.kick(kick_type::REACHED_TRESHOLD);
+      });
+      max_kick_bps--;
+    } else break;
   }
 }
 
@@ -115,13 +133,6 @@ bool system_contract::check_missed_blocks(block_timestamp timestamp, account_nam
 
    account_name producers_schedule[21];
    auto total_prods = get_active_producers(producers_schedule, sizeof(account_name) * 21) / 8; 
-   
-   // if(_gstate.last_producer_schedule_size != total_prods) {
-   //    _gstate.last_producer_schedule_size = total_prods;
-   //    _gschedule_metrics.last_onblock_caller = producer;
-   //    reset_schedule_metrics();
-   //    return false;
-   // }
    
    bool is_activated = _gstate.last_producer_schedule_size == total_prods && is_new_schedule_activated(producers_schedule, total_prods);
 
@@ -248,10 +259,8 @@ void system_contract::onblock(block_timestamp timestamp, account_name producer) 
 
     //called once per day to set payments snapshot
     if (_gstate.last_claimrewards + uint32_t(3600) <= timestamp.slot) { //172800 blocks in a day
-        print("\nNew ClaimRewards Snapshot");
-		auto start_time = current_time();
+		// auto start_time = current_time();
         claimrewards_snapshot();
-		print("Elapsed Execution (in microseconds): ", (current_time() - start_time));
         _gstate.last_claimrewards = timestamp.slot;
     }
 }
@@ -383,7 +392,7 @@ void system_contract::claimrewards_snapshot(){
         auto itr = _payments.find(prod.owner);
         
         if (itr == _payments.end()) {
-            _payments.emplace(prod.owner, [&]( auto& a ) { //have eosio pay? no issues so far...
+            _payments.emplace(_self, [&]( auto& a ) { //have eosio pay? no issues so far...
                 a.bp = prod.owner;
                 a.pay = asset(pay_amount);
             });

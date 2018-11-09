@@ -25,6 +25,7 @@
 #define TWELVE_MINUTES_US  720000000
 #define MAX_PRODUCERS             51
 #define TOP_PRODUCERS             21
+#define MAX_VOTE_PRODUCERS        30
 
 namespace eosiosystem {
    using namespace eosio;
@@ -63,7 +64,6 @@ namespace eosiosystem {
           info.producer_key = producer_key;
           info.url = url;
           info.location = location;
-          info.missed_blocks_per_rotation = 0;
           info.is_active = true;
         });
       } else {
@@ -95,7 +95,7 @@ namespace eosiosystem {
 
    void system_contract::update_rotation_time(block_timestamp block_time) {
       _grotations.last_rotation_time = block_time;
-      _grotations.next_rotation_time = block_timestamp(block_time.to_time_point() + time_point(microseconds(SIX_HOURS_US)));
+      _grotations.next_rotation_time = block_timestamp(block_time.to_time_point() + time_point(microseconds(TWELVE_HOURS_US)));
    }
 
    void system_contract::restart_missed_blocks_per_rotation(std::vector<eosio::producer_key> prods) {
@@ -104,10 +104,10 @@ namespace eosiosystem {
           auto bp_name = prods[i].producer_name;
           auto pitr = _producers.find(bp_name);
 
-          if (pitr != _producers.end() && pitr->active()) {
+          if (pitr != _producers.end()) {
             _producers.modify(pitr, 0, [&](auto &p) {
-              if (p.kick_penalty_hours > 0 && p.missed_blocks_per_rotation == 0) {
-                p.kick_penalty_hours--;
+              if (p.times_kicked > 0 && p.missed_blocks_per_rotation == 0) {
+                p.times_kicked--;
               } 
               p.lifetime_missed_blocks += p.missed_blocks_per_rotation;
               p.missed_blocks_per_rotation = 0;
@@ -244,23 +244,7 @@ namespace eosiosystem {
        return 0;
      }
 
-     auto totalProducers = 0;
-     for (const auto &prod : _producers) {
-       if(prod.active()) { 
-         totalProducers++;
-       }
-
-       // 30 max producers allowed to vote
-       if(totalProducers >= 30){
-         break;
-       }
-     }
-
-     if(totalProducers == 0){
-        return 0;
-     }
-
-     double percentVoted = amountVotedProducers / totalProducers;
+     double percentVoted = amountVotedProducers / MAX_VOTE_PRODUCERS;
      double voteWeight = (sin(M_PI * percentVoted - M_PI_2) + 1.0) / 2.0;
      return (voteWeight * staked);
    }
@@ -298,7 +282,7 @@ namespace eosiosystem {
          eosio_assert( voter_name != proxy, "cannot proxy to self" );
          require_recipient( proxy );
       } else {
-         eosio_assert( producers.size() <= 30, "attempt to vote for too many producers" );
+         eosio_assert( producers.size() <= MAX_VOTE_PRODUCERS, "attempt to vote for too many producers" );
          for( size_t i = 1; i < producers.size(); ++i ) {
             eosio_assert( producers[i-1] < producers[i], "producer votes must be unique and sorted" );
          }
@@ -436,37 +420,35 @@ namespace eosiosystem {
    void system_contract::propagate_weight_change(const voter_info &voter) {
       eosio_assert( voter.proxy == 0 || !voter.is_proxy, "account registered as a proxy is not allowed to use a proxy");
       
-      auto totalStake = double(voter.staked);
+      auto totalStake = voter.staked;
       if(voter.is_proxy){
          totalStake += voter.proxied_vote_weight;
       } 
-      double new_weight = inverse_vote_weight(totalStake, voter.producers.size());
-    
-      if (new_weight - voter.last_vote_weight > 1){
-         if (voter.proxy) {
-            if(voter.last_stake != int64_t(totalStake)){
-               // this part should never happen since the function is called only on proxies
-               auto &proxy = _voters.get(voter.proxy, "proxy not found"); // data corruption
-               _voters.modify(proxy, 0, [&](auto &p) { 
-                  p.proxied_vote_weight += totalStake - voter.last_stake;
-               });
-               
-               propagate_weight_change(proxy);
-            }
-         } else {
-            for (auto acnt : voter.producers) {
-               auto &pitr = _producers.get(acnt, "producer not found"); // data corruption
-               _producers.modify(pitr, 0, [&](auto &p) {
-                  p.total_votes += new_weight;
-                  _gstate.total_producer_vote_weight += new_weight;
-               });
-            }
+      double new_weight = inverse_vote_weight((double)totalStake, voter.producers.size());
+      double delta = new_weight - voter.last_vote_weight;
+
+      if (voter.proxy) { // this part should never happen since the function is called only on proxies
+         if(voter.last_stake != totalStake){
+            auto &proxy = _voters.get(voter.proxy, "proxy not found"); // data corruption
+            _voters.modify(proxy, 0, [&](auto &p) { 
+               p.proxied_vote_weight += totalStake - voter.last_stake;
+            });
+            
+            propagate_weight_change(proxy);
+         }
+      } else {
+         for (auto acnt : voter.producers) {
+            auto &pitr = _producers.get(acnt, "producer not found"); // data corruption
+            _producers.modify(pitr, 0, [&](auto &p) {
+               p.total_votes += delta;
+               _gstate.total_producer_vote_weight += delta;
+            });
          }
       }
       
       _voters.modify(voter, 0, [&](auto &v) { 
          v.last_vote_weight = new_weight; 
-         v.last_stake = int64_t(totalStake);
+         v.last_stake = totalStake;
       });
    }
 
