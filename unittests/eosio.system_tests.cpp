@@ -3270,6 +3270,8 @@ BOOST_FIXTURE_TEST_CASE( vote_producers_in_and_out, eosio_system_tester ) try {
 
 BOOST_FIXTURE_TEST_CASE( worker_proposal, eosio_system_tester ) try {
 
+      uint32_t wp_cycle_duration = 2500000; // 2.5 mil seconds = 5 mil blocks
+
       // CREATE 40 voters and 1 proposer
       const asset net = core_from_string("80.0000");
       const asset cpu = core_from_string("80.0000");
@@ -3278,7 +3280,7 @@ BOOST_FIXTURE_TEST_CASE( worker_proposal, eosio_system_tester ) try {
             create_account_with_resources( v, config::system_account_name, core_from_string("1.0000"), false, net, cpu );
             transfer( config::system_account_name, v, core_from_string("40000.0000"), config::system_account_name );
             BOOST_REQUIRE_EQUAL(success(), stake(v, core_from_string("10000.0000"), core_from_string("10000.0000")) );
-            register_voter(v);
+            regvoter(v);
             base_tester::set_authority(v, name(config::active_name).to_string(), 
                                     authority(
                                           1,
@@ -3320,7 +3322,7 @@ BOOST_FIXTURE_TEST_CASE( worker_proposal, eosio_system_tester ) try {
                   create_account_with_resources( v, config::system_account_name, core_from_string("1.0000"), false, net, cpu );
                   transfer( config::system_account_name, v, core_from_string("100.0000"), config::system_account_name );
                   BOOST_REQUIRE_EQUAL(success(), stake(v, core_from_string("10.0000"), core_from_string("10.0000")) );
-                  register_voter(v);
+                  regvoter(v);
                   produce_blocks(1);
             }
       }
@@ -3336,10 +3338,9 @@ BOOST_FIXTURE_TEST_CASE( worker_proposal, eosio_system_tester ) try {
       }
 
       // NEXT CYCLE 0
-      create_proposal(
+      submit_worker_proposal(
             N(proposer1111),
             std::string("test proposal 1"),
-            std::string("32662273CFF99078EC3BFA5E7BBB1C369B1D3884DEDF2AF7D8748DEE080E4B99"),
             (uint16_t)3,
             std::string("32662273CFF99078EC3BFA5E7BBB1C369B1D3884DEDF2AF7D8748DEE080E4B99"),
             core_from_string("1111.0000"),
@@ -3347,139 +3348,136 @@ BOOST_FIXTURE_TEST_CASE( worker_proposal, eosio_system_tester ) try {
       );
 
       produce_blocks(1);
+      regballot(N(proposer1111), asset(0, symbol(string_to_symbol(4, "VOTE"))), last_block_time(), last_block_time() + wp_cycle_duration, std::string("ballot1"));
+      linkballot(0, 0, N(proposer1111));
 
       // check if 50TLOS (3% < 50) fee was used
       BOOST_REQUIRE_EQUAL( core_from_string("19950.0000"), get_balance( "proposer1111" ) );
 
-      create_proposal(
+      submit_worker_proposal(
             N(proposer1111),
             std::string("test proposal 2"),
-            std::string("32662273CFF99078EC3BFA5E7BBB1C369B1D3884DEDF2AF7D8748DEE080E4B99"),
             (uint16_t)3,
             std::string("32662273CFF99078EC3BFA5E7BBB1C369B1D3884DEDF2AF7D8748DEE080E4B99"),
             core_from_string("2000.0000"),
             N(proposer1111)
       );
-
       produce_blocks(1);
+      regballot(N(proposer1111), asset(0, symbol(string_to_symbol(4, "VOTE"))), last_block_time(), last_block_time() + wp_cycle_duration, std::string("ballot2"));
+      linkballot(1, 1, N(proposer1111));
+      
+      // voting window (#0) started
+
       // check if 60TLOS (3% = 60) fee was used
       BOOST_REQUIRE_EQUAL( core_from_string("19890.0000"), get_balance( "proposer1111" ) );
 
 
       // check vote integrity
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Invalid Vote. [0 = NO, 1 = YES, 2 = ABSTAIN]" ), vote_proposal(0, 3, N(voteraaaaaaa)));
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Voter not registered in trail service" ), vote_proposal(0, 1, N(proposer1111)));
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Proposal Not Found" ), vote_proposal(100, 1, N(voteraaaaaaa)));
+      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Invalid Vote. [0 = NO, 1 = YES, 2 = ABSTAIN]" ), trail_castvote(N(voteraaaaaaa), 0, 3));
+      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "voter is not registered" ), trail_castvote(N(proposer1111), 0, 1));
+      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "ballot with given ballot_id doesn't exist" ), trail_castvote(N(voteraaaaaaa), 100, 1));
 
-      // 40 voters -> 5% = 2 -> 10% = 4
+      
+      // vote proposal 0 to pass treshold // 40 voters -> 5% = 2 -> 10% = 4
+      trail_mirrorstake(N(voteraaaaaaa), wp_cycle_duration);
+      trail_castvote(N(voteraaaaaaa), 0, 1); 
 
-      BOOST_REQUIRE_EQUAL(false, get_proposal_info(0)["last_cycle_status"].as_bool());
+      trail_mirrorstake(N(voterbbbbbbb), wp_cycle_duration);
+      trail_castvote(N(voterbbbbbbb), 0, 1);
 
-      // vote proposal 0 to pass treshold
-      vote_proposal(0, 1, N(voteraaaaaaa)); 
-      vote_proposal(0, 1, N(voterbbbbbbb)); 
-      vote_proposal(0, 0, N(voterccccccc)); 
-      vote_proposal(0, 2, N(voterddddddd)); 
+      trail_mirrorstake(N(voterccccccc), wp_cycle_duration);
+      trail_castvote(N(voterccccccc), 0, 0); 
 
-      // check that proposal 0 was marked as accepted after vote
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(0)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(true, get_proposal_info(0)["last_cycle_status"].as_bool());
+      trail_mirrorstake(N(voterddddddd), wp_cycle_duration);
+      trail_castvote(N(voterddddddd), 0, 2); 
 
-      // CLAIM: nothing will be climed in the same cycle
-      claim_proposal_funds(0, N(proposer1111));
+      // CLAIM: nothing can be claimed while cycle is still open for voting
+      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Cycle is still open" ), claim_proposal_funds(0, N(proposer1111)));
       BOOST_REQUIRE_EQUAL( core_from_string("19890.0000"), get_balance( "proposer1111" ) );
 
       // vote proposal 0 to fail funds treshold
-      vote_proposal(0, 0, N(voterddddddd)); 
-      BOOST_REQUIRE_EQUAL(false, get_proposal_info(0)["last_cycle_status"].as_bool());
+      trail_castvote(N(voterddddddd), 0, 0);
 
       // vote proposal 1 to fail all tresholds
-      vote_proposal(1, 2, N(voteraaaaaaa)); 
-      vote_proposal(1, 2, N(voterbbbbbbb)); 
-      vote_proposal(1, 2, N(voterccccccc)); 
-      vote_proposal(1, 2, N(voterddddddd));
+      trail_castvote(N(voteraaaaaaa), 1, 2); 
+      trail_castvote(N(voterbbbbbbb), 1, 2); 
+      trail_castvote(N(voterccccccc), 1, 2); 
+      trail_castvote(N(voterddddddd), 1, 2);
 
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(0)["outstanding"].as_uint64());
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(1)["outstanding"].as_uint64());
-
-      // NEXT CYCLE 1
+      // SKIP TO THE END OF CYCLE 0
       produce_block(fc::seconds(2500000));
 
       // CLAIM: nothing to claim
       claim_proposal_funds(1, N(proposer1111));
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(1)["outstanding"].as_uint64());
       BOOST_REQUIRE_EQUAL( core_from_string("19890.0000"), get_balance( "proposer1111" ) );
 
       // CLAIM: fee from proposal 0 should be added to account
       claim_proposal_funds(0, N(proposer1111));
       BOOST_REQUIRE_EQUAL( core_from_string("19940.0000"), get_balance( "proposer1111" ) );
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(0)["outstanding"].as_uint64());
 
+      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "ballot voting window not open" ), trail_castvote(N(voteraaaaaaa), 1, 1));
+
+      // Start next cycle (#1) voting window
+      trail_nextcycle(N(proposer1111), 0, last_block_time(), last_block_time() + wp_cycle_duration);
+      trail_nextcycle(N(proposer1111), 1, last_block_time(), last_block_time() + wp_cycle_duration);
+
+      // vote proposal 0 to pass threshold
+      trail_mirrorstake(N(voterddddddd), wp_cycle_duration);
+      trail_castvote(N(voterddddddd), 0, 1); 
+ 
       // vote proposal 1 to pass all tresholds 
-            // -> fee available for claim without passing an extra cycle
-      vote_proposal(1, 1, N(voteraaaaaaa)); 
-      vote_proposal(1, 1, N(voterbbbbbbb)); 
-      vote_proposal(1, 1, N(voterccccccc)); 
-      vote_proposal(1, 1, N(voterddddddd));
+      trail_mirrorstake(N(voteraaaaaaa), wp_cycle_duration);            
+      trail_castvote(N(voteraaaaaaa), 1, 1);
 
-      BOOST_REQUIRE_EQUAL(true, get_proposal_info(1)["last_cycle_status"].as_bool());
-      BOOST_REQUIRE_EQUAL(1, get_proposal_info(1)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(600000, get_proposal_info(1)["outstanding"].as_uint64());
+      trail_mirrorstake(N(voterbbbbbbb), wp_cycle_duration);
+      trail_castvote(N(voterbbbbbbb), 1, 1); 
 
-      // CLAIM: fee from proposal 1 should be added to account
-      claim_proposal_funds(1, N(proposer1111));
-      BOOST_REQUIRE_EQUAL( core_from_string("20000.0000"), get_balance( "proposer1111" ) );
+      trail_mirrorstake(N(voterccccccc), wp_cycle_duration);
+      trail_castvote(N(voterccccccc), 1, 1); 
 
+      trail_castvote(N(voterddddddd), 1, 1);
 
-      // make proposal 0 to pass
-      vote_proposal(0, 2, N(voterddddddd)); 
-      BOOST_REQUIRE_EQUAL(true, get_proposal_info(0)["last_cycle_status"].as_bool());
-      BOOST_REQUIRE_EQUAL(1, get_proposal_info(0)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(0)["outstanding"].as_uint64());
-
-
-      // NEXT CYCLE 2
+      // SKIP TO THE END OF CYCLE 1
       produce_block(fc::seconds(2500000));
 
-      // make proposal 0 to fail and proposal 1 to pass
-      vote_proposal(1, 1, N(voteraaaaaaa)); 
-      vote_proposal(1, 1, N(voterbbbbbbb)); 
-      vote_proposal(0, 0, N(voterddddddd)); 
-
-      BOOST_REQUIRE_EQUAL(false, get_proposal_info(0)["last_cycle_status"].as_bool());
-      BOOST_REQUIRE_EQUAL(2, get_proposal_info(0)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(11110000, get_proposal_info(0)["outstanding"].as_uint64());
-      BOOST_REQUIRE_EQUAL(true, get_proposal_info(1)["last_cycle_status"].as_bool());
-      BOOST_REQUIRE_EQUAL(2, get_proposal_info(1)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(20000000, get_proposal_info(1)["outstanding"].as_uint64());
-      
-      // NEXT CYCLE 3
-      produce_block(fc::seconds(2500000));
-
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Proposal Has Expired" ), vote_proposal(1, 2, N(voteraaaaaaa)));
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Proposal Has Expired" ), vote_proposal(0, 2, N(voteraaaaaaa)));
-
-      // CLAIM: cycles 1&2 from proposal 1
-      claim_proposal_funds(1, N(proposer1111));
-      BOOST_REQUIRE_EQUAL( core_from_string("24000.0000"), get_balance( "proposer1111" ) );
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Already claimed all funds" ), claim_proposal_funds(1, N(proposer1111)));
-
-      BOOST_REQUIRE_EQUAL(true, get_proposal_info(1)["last_cycle_status"].as_bool());
-      BOOST_REQUIRE_EQUAL(3, get_proposal_info(1)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(1)["outstanding"].as_uint64());
-
-      // NEXT CYCLE 4
-      produce_block(fc::seconds(2500000));
-      
-      // CLAIM: cycle 1 from proposal 0
+      // CLAIM: funds from proposal 0 should pe added, without fee
       claim_proposal_funds(0, N(proposer1111));
+      BOOST_REQUIRE_EQUAL( core_from_string("21051.0000"), get_balance( "proposer1111" ) );
+
+      // CLAIM: both fee and funds from proposal 1 should be added to account
+      claim_proposal_funds(1, N(proposer1111));
+      BOOST_REQUIRE_EQUAL( core_from_string("23111.0000"), get_balance( "proposer1111" ) );
+
+      // Start next cycle (#2) voting window
+      trail_nextcycle(N(proposer1111), 0, last_block_time(), last_block_time() + wp_cycle_duration);
+      trail_nextcycle(N(proposer1111), 1, last_block_time(), last_block_time() + wp_cycle_duration);
+
+      // make proposal 0 to fail and keep proposal 1 to pass
+      trail_mirrorstake(N(voterddddddd), wp_cycle_duration);
+      trail_castvote(N(voterddddddd), 0, 0); 
+
+      // SKIP TO THE END OF CYCLE 2
+      produce_block(fc::seconds(2500000));
+
+      // CLAIM: nothing to claim
+      claim_proposal_funds(0, N(proposer1111));
+      BOOST_REQUIRE_EQUAL( core_from_string("23111.0000"), get_balance( "proposer1111" ) );
+
+      // CLAIM: 2000TLOS should be added 
+      claim_proposal_funds(1, N(proposer1111));
       BOOST_REQUIRE_EQUAL( core_from_string("25111.0000"), get_balance( "proposer1111" ) );
-      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Already claimed all funds" ), claim_proposal_funds(0, N(proposer1111)));
+      
+      // CHECK IF BOTH PROPOSALS ENDED
+      BOOST_REQUIRE_EQUAL(0, get_wp_info(0)["status"].as_uint64());
+      BOOST_REQUIRE_EQUAL(3, get_wp_info(0)["current_cycle"].as_uint64());
 
-      BOOST_REQUIRE_EQUAL(false, get_proposal_info(0)["last_cycle_status"].as_bool());
-      BOOST_REQUIRE_EQUAL(3, get_proposal_info(0)["last_cycle_check"].as_uint64());
-      BOOST_REQUIRE_EQUAL(0, get_proposal_info(0)["outstanding"].as_uint64());
+      BOOST_REQUIRE_EQUAL(0, get_wp_info(1)["status"].as_uint64());
+      BOOST_REQUIRE_EQUAL(3, get_wp_info(1)["current_cycle"].as_uint64());
 
+      // CLAIM AFTER PROPOSALS ENDED
+      BOOST_REQUIRE_EQUAL( wasm_assert_msg( "Proposal is closed" ), claim_proposal_funds(0, N(proposer1111)));
+
+      // TODO: check list + close ballot
 
 } FC_LOG_AND_RETHROW()
 
